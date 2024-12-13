@@ -48,5 +48,7 @@ func main() {
 		panic(fmt.Sprintf("failed to create nonce counter: %v", err))
 	}
 
+	fmt.Println("starting nonce counter...")
 	ncCounter.Start(ctx, startBlock, rpcURL)
+	fmt.Println("nonce counter stopped, exiting...")
 }
