@@ -29,26 +29,65 @@ type NonceCounter struct {
 	concurrency     int64
 }
 
-func NewNonceCounter(concurrency int64, contractAddress, rawABI, eventName string, startBlock int64,
-	blockBatchSize int64, addresses []string) (*NonceCounter, error) {
-	contractAbi, err := abi.JSON(strings.NewReader(rawABI))
+type NonceCounterConfig struct {
+	Concurrency     int64
+	ContractAddress string
+	ContractABI     string
+	StartBlock      int64
+	EventName       string
+	Addresses       []string
+	BlockBatchSize  int64
+}
+
+func (ncc NonceCounterConfig) Validate() error {
+	if ncc.Concurrency <= 0 {
+		return fmt.Errorf("concurrency must be greater than 0")
+	}
+	if ncc.ContractAddress == "" {
+		return fmt.Errorf("contract address must be provided")
+	}
+	if ncc.ContractABI == "" {
+		return fmt.Errorf("contract ABI must be provided")
+	}
+	if ncc.StartBlock < 0 {
+		return fmt.Errorf("start block must be greater than or equal to 0")
+	}
+	if ncc.EventName == "" {
+		return fmt.Errorf("event name must be provided")
+	}
+	if len(ncc.Addresses) == 0 {
+		return fmt.Errorf("addresses must be provided")
+	}
+	if ncc.BlockBatchSize <= 0 {
+		return fmt.Errorf("block batch size must be greater than 0")
+	}
+
+	return nil
+}
+
+func NewNonceCounter(config NonceCounterConfig) (*NonceCounter, error) {
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+
+	contractAbi, err := abi.JSON(strings.NewReader(config.ContractABI))
 	if err != nil {
 		log.Fatalf("failed to parse contract ABI: %v", err)
 	}
 
-	addressToNonce := make(map[string]uint64, len(addresses))
-	for _, address := range addresses {
+	addressToNonce := make(map[string]uint64, len(config.Addresses))
+	for _, address := range config.Addresses {
 		addressToNonce[address] = 0
 	}
 
 	return &NonceCounter{
-		contractAddress: contractAddress,
-		eventName:       eventName,
+		contractAddress: config.ContractAddress,
+		eventName:       config.EventName,
 		contractAbi:     contractAbi,
-		addresses:       addresses,
-		blockBatchSize:  blockBatchSize,
+		addresses:       config.Addresses,
+		blockBatchSize:  config.BlockBatchSize,
 		addressToNonce:  addressToNonce,
-		concurrency:     concurrency,
+		concurrency:     config.Concurrency,
 		mu:              sync.Mutex{},
 	}, nil
 }

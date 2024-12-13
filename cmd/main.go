@@ -19,6 +19,7 @@ const (
 	eventName       = "ValidatorAdded"
 	startBlock      = 181612
 	blockBatchSize  = 50000
+	concurrency     = 1000
 )
 
 var (
@@ -35,7 +36,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	ncCounter, err := noncecounter.NewNonceCounter(contractAddress, contractABIJSON, eventName, startBlock, blockBatchSize, addresses)
+	ncCounter, err := noncecounter.NewNonceCounter(noncecounter.NonceCounterConfig{
+		ContractAddress: contractAddress,
+		EventName:       eventName,
+		ContractABI:     contractABIJSON,
+		Addresses:       addresses,
+		BlockBatchSize:  blockBatchSize,
+		Concurrency:     concurrency,
+	})
 	if err != nil {
 		panic(fmt.Sprintf("failed to create nonce counter: %v", err))
 	}
