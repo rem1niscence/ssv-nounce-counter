@@ -131,43 +131,7 @@ func (nc *NonceCounter) Start(ctx context.Context, startBlock uint64, rpcURL str
 				break
 			}
 
-			foundAddress := false
-
-			sem := semaphore.NewWeighted(nc.concurrency)
-			var wg sync.WaitGroup
-
-			for _, vLog := range logs {
-				wg.Add(1)
-
-				if err := sem.Acquire(ctx, 1); err != nil {
-					log.Printf("failed to acquire semaphore: %v\n", err)
-					wg.Done()
-					continue
-				}
-
-				go func(vLog types.Log) {
-					defer wg.Done()
-					defer sem.Release(1)
-
-					event := &ValidatorAddedEvent{}
-					if err := event.Parse(nc.eventName, nc.contractAbi, vLog); err != nil {
-						// This should be handled properly in production code, for now just ignore it and move on
-						return
-					}
-
-					// Process the event
-					if incremented := nc.incrementNonce(*event); !incremented {
-						return
-					}
-
-					if !foundAddress {
-						foundAddress = true
-					}
-				}(vLog)
-			}
-			wg.Wait()
-
-			if foundAddress {
+			if foundAddress := nc.FindNonces(ctx, logs); foundAddress {
 				nc.printNonces()
 			}
 
@@ -175,6 +139,48 @@ func (nc *NonceCounter) Start(ctx context.Context, startBlock uint64, rpcURL str
 			currentBlock.Add(query.ToBlock, big.NewInt(1))
 		}
 	}
+}
+
+// FindNonces processes blockchain logs to identify relevant events, increment
+// nonces for tracked addresses, and returns success.
+func (nc *NonceCounter) FindNonces(ctx context.Context, logs []types.Log) bool {
+	foundAddress := false
+
+	sem := semaphore.NewWeighted(nc.concurrency)
+	var wg sync.WaitGroup
+
+	for _, vLog := range logs {
+		wg.Add(1)
+
+		if err := sem.Acquire(ctx, 1); err != nil {
+			log.Printf("failed to acquire semaphore: %v\n", err)
+			wg.Done()
+			continue
+		}
+
+		go func(vLog types.Log) {
+			defer wg.Done()
+			defer sem.Release(1)
+
+			event := &ValidatorAddedEvent{}
+			if err := event.Parse(nc.eventName, nc.contractAbi, vLog); err != nil {
+				// This should be handled properly in production code, for now just ignore it and move on
+				return
+			}
+
+			// Process the event
+			if incremented := nc.incrementNonce(*event); !incremented {
+				return
+			}
+
+			if !foundAddress {
+				foundAddress = true
+			}
+		}(vLog)
+	}
+	wg.Wait()
+
+	return foundAddress
 }
 
 // prepareQuery constructs and returns an Ethereum FilterQuery to fetch logs within a specific block range and address list.
