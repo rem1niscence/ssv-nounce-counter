@@ -1,10 +1,73 @@
 package noncecounter
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 )
+
+func TestPrepareQuery(t *testing.T) {
+	tests := []struct {
+		name           string
+		currentBlock   *big.Int
+		headerNumber   *big.Int
+		blockBatchSize int64
+		expectedFrom   *big.Int
+		expectedTo     *big.Int
+	}{
+		{
+			name:           "normal range",
+			currentBlock:   big.NewInt(5),
+			headerNumber:   big.NewInt(20),
+			blockBatchSize: 10,
+			expectedFrom:   big.NewInt(5),
+			expectedTo:     big.NewInt(15),
+		},
+		{
+			name:           "endBlock exceeds latest block",
+			currentBlock:   big.NewInt(15),
+			headerNumber:   big.NewInt(18),
+			blockBatchSize: 10,
+			expectedFrom:   big.NewInt(15),
+			expectedTo:     big.NewInt(18),
+		},
+		{
+			name:           "currentBlock greater than headerNumber",
+			currentBlock:   big.NewInt(20),
+			headerNumber:   big.NewInt(18),
+			blockBatchSize: 5,
+			expectedFrom:   big.NewInt(18),
+			expectedTo:     big.NewInt(18),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nc := &NonceCounter{
+				contractAddress: "0x1234567890AbcdEF1234567890aBcdef12345678",
+				blockBatchSize:  tt.blockBatchSize,
+			}
+
+			header := &types.Header{Number: tt.headerNumber}
+
+			// Call prepareQuery
+			query := nc.prepareQuery(header, tt.currentBlock)
+
+			// Validate results
+			if query.FromBlock.Cmp(tt.expectedFrom) != 0 {
+				t.Errorf("FromBlock = %v, want %v", query.FromBlock, tt.expectedFrom)
+			}
+			if query.ToBlock.Cmp(tt.expectedTo) != 0 {
+				t.Errorf("ToBlock = %v, want %v", query.ToBlock, tt.expectedTo)
+			}
+			if query.Addresses[0].Hex() != nc.contractAddress {
+				t.Errorf("Addresses = %v, want [%s]", query.Addresses, nc.contractAddress)
+			}
+		})
+	}
+}
 
 func TestNonceCounterIncrementNonce(t *testing.T) {
 	tests := []struct {
