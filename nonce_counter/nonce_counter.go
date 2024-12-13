@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/exp/slices"
+	"golang.org/x/sync/semaphore"
 )
 
 type NonceCounter struct {
@@ -25,9 +26,11 @@ type NonceCounter struct {
 	addressToNonce  map[string]uint64
 	blockBatchSize  int64
 	mu              sync.Mutex
+	concurrency     int64
 }
 
-func NewNonceCounter(contractAddress, rawABI, eventName string, startBlock uint64, blockBatchSize int64, addresses []string) (*NonceCounter, error) {
+func NewNonceCounter(concurrency int64, contractAddress, rawABI, eventName string, startBlock int64,
+	blockBatchSize int64, addresses []string) (*NonceCounter, error) {
 	contractAbi, err := abi.JSON(strings.NewReader(rawABI))
 	if err != nil {
 		log.Fatalf("failed to parse contract ABI: %v", err)
@@ -45,6 +48,7 @@ func NewNonceCounter(contractAddress, rawABI, eventName string, startBlock uint6
 		addresses:       addresses,
 		blockBatchSize:  blockBatchSize,
 		addressToNonce:  addressToNonce,
+		concurrency:     concurrency,
 		mu:              sync.Mutex{},
 	}, nil
 }
@@ -83,22 +87,40 @@ func (nc *NonceCounter) Start(ctx context.Context, startBlock uint64, rpcURL str
 			}
 
 			foundAddress := false
+
+			sem := semaphore.NewWeighted(nc.concurrency)
+			var wg sync.WaitGroup
+
 			for _, vLog := range logs {
-				event := &ValidatorAddedEvent{}
-				if err := event.Parse(nc.eventName, nc.contractAbi, vLog); err != nil {
-					// log.Printf("failed to parse log: %v", err)
+				wg.Add(1)
+
+				if err := sem.Acquire(ctx, 1); err != nil {
+					log.Printf("failed to acquire semaphore: %v\n", err)
+					wg.Done()
 					continue
 				}
 
-				// Process the event
-				if incremented := nc.IncrementNonce(*event); !incremented {
-					continue
-				}
+				go func(vLog types.Log) {
+					defer wg.Done()
+					defer sem.Release(1)
 
-				if !foundAddress {
-					foundAddress = true
-				}
+					event := &ValidatorAddedEvent{}
+					if err := event.Parse(nc.eventName, nc.contractAbi, vLog); err != nil {
+						// This should be handled properly in production code, for now just ignore it and move on
+						return
+					}
+
+					// Process the event
+					if incremented := nc.IncrementNonce(*event); !incremented {
+						return
+					}
+
+					if !foundAddress {
+						foundAddress = true
+					}
+				}(vLog)
 			}
+			wg.Wait()
 
 			if foundAddress {
 				nc.PrintNonces()
