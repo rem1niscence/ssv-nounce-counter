@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
+// NonceCounter manages nonces for specific blockchain addresses by tracking contract events in a thread-safe manner.
 type NonceCounter struct {
 	contractAddress string
 	eventName       string
@@ -29,7 +30,8 @@ type NonceCounter struct {
 	concurrency     int64
 }
 
-type NonceCounterConfig struct {
+// Config represents the configuration required for initializing and managing a nonce counter.
+type Config struct {
 	Concurrency     int64
 	ContractAddress string
 	ContractABI     string
@@ -39,7 +41,8 @@ type NonceCounterConfig struct {
 	BlockBatchSize  int64
 }
 
-func (ncc NonceCounterConfig) Validate() error {
+// Validate checks the Config fields for validity and returns an error if any required field is invalid or missing.
+func (ncc Config) Validate() error {
 	if ncc.Concurrency <= 0 {
 		return fmt.Errorf("concurrency must be greater than 0")
 	}
@@ -65,7 +68,9 @@ func (ncc NonceCounterConfig) Validate() error {
 	return nil
 }
 
-func NewNonceCounter(config NonceCounterConfig) (*NonceCounter, error) {
+// NewNonceCounter initializes a NonceCounter instance using the provided configuration.
+// It validates the configuration and sets up the necessary internal state for nonce management.
+func NewNonceCounter(config Config) (*NonceCounter, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -92,6 +97,7 @@ func NewNonceCounter(config NonceCounterConfig) (*NonceCounter, error) {
 	}, nil
 }
 
+// Start begins tracking and processing blockchain events from a specified start block using the provided RPC URL and context.
 func (nc *NonceCounter) Start(ctx context.Context, startBlock uint64, rpcURL string) error {
 	client, err := ethclient.Dial(rpcURL)
 	if err != nil {
@@ -110,7 +116,7 @@ func (nc *NonceCounter) Start(ctx context.Context, startBlock uint64, rpcURL str
 			header, err := client.HeaderByNumber(context.Background(), nil)
 			if err != nil {
 				log.Printf("failed to fetch block header: %v\n", err)
-				// On production code, the error should be handled properly and the retry and a exponential backoff should be implemented
+				// On production code, the error should be handled properly and the retry and an exponential backoff should be implemented
 				time.Sleep(5 * time.Second)
 				break
 			}
@@ -120,7 +126,7 @@ func (nc *NonceCounter) Start(ctx context.Context, startBlock uint64, rpcURL str
 			logs, err := client.FilterLogs(context.Background(), query)
 			if err != nil {
 				log.Printf("error fetching logs for block %d: %v", currentBlock.Int64(), err)
-				// On production code, the error should be handled properly and the retry and a exponential backoff should be implemented
+				// On production code, the error should be handled properly and the retry and an exponential backoff should be implemented
 				time.Sleep(5 * time.Second)
 				break
 			}
@@ -150,7 +156,7 @@ func (nc *NonceCounter) Start(ctx context.Context, startBlock uint64, rpcURL str
 					}
 
 					// Process the event
-					if incremented := nc.IncrementNonce(*event); !incremented {
+					if incremented := nc.incrementNonce(*event); !incremented {
 						return
 					}
 
@@ -162,7 +168,7 @@ func (nc *NonceCounter) Start(ctx context.Context, startBlock uint64, rpcURL str
 			wg.Wait()
 
 			if foundAddress {
-				nc.PrintNonces()
+				nc.printNonces()
 			}
 
 			// Move to the next block range
@@ -171,6 +177,7 @@ func (nc *NonceCounter) Start(ctx context.Context, startBlock uint64, rpcURL str
 	}
 }
 
+// prepareQuery constructs and returns an Ethereum FilterQuery to fetch logs within a specific block range and address list.
 func (nc *NonceCounter) prepareQuery(header *types.Header, currentBlock *big.Int) ethereum.FilterQuery {
 	latestBlock := header.Number
 
@@ -195,7 +202,8 @@ func (nc *NonceCounter) prepareQuery(header *types.Header, currentBlock *big.Int
 	}
 }
 
-func (nc *NonceCounter) IncrementNonce(vae ValidatorAddedEvent) bool {
+// incrementNonce increments the nonce for a specific address if it exists and returns whether a change was made.
+func (nc *NonceCounter) incrementNonce(vae ValidatorAddedEvent) bool {
 	if contains := slices.Contains(nc.addresses, vae.Owner.Hex()); !contains {
 		return false
 	}
@@ -207,7 +215,8 @@ func (nc *NonceCounter) IncrementNonce(vae ValidatorAddedEvent) bool {
 	return true
 }
 
-func (nc *NonceCounter) PrintNonces() {
+// printNonces prints the current state of address-to-nonce mappings to the console.
+func (nc *NonceCounter) printNonces() {
 	nc.mu.Lock()
 	defer nc.mu.Unlock()
 
