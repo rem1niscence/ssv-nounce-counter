@@ -10,6 +10,9 @@ import (
 	noncecounter "github.com/rem1niscence/ssv-nounce-counter/nonce_counter"
 )
 
+// On a production environment these values would be supplied in a more programmatic way
+// i.e through environment variables, command line arguments, configuration files, etc.
+// For the sake of simplicity, they are hardcoded here.
 const (
 	rpcURL          = "https://ethereum-holesky-rpc.publicnode.com"
 	contractAddress = "0x38A4794cCEd47d3baf7370CcC43B560D3a1beEFA"
